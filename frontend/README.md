@@ -1,16 +1,37 @@
-# React + Vite
+# Stayfolk frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite frontend for the Hotel Booking Portal.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Start the backend first (see the [project setup guide](../README.md)). Then open Command
+Prompt in this folder:
 
-## React Compiler
+```bat
+copy .env.example .env
+npm install
+npm run dev
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Open the address printed by Vite, usually `http://localhost:5173`. The default backend API
+URL is `http://localhost:8080/api`; set `VITE_API_BASE_URL` in `.env` if your API runs
+elsewhere.
 
-## Expanding the Oxlint configuration
+## Available booking flow
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+- Search hotels by location and dates.
+- Estimate a one-room stay total and optionally filter by a room budget.
+- View hotel details, amenities, prices, and current room counts on a dedicated page.
+- Ask the backend for a stay quote before entering guest details.
+- Create a booking and receive its unique reference.
+- Look up a booking with its reference and email, then cancel it.
+
+## Code layout
+
+- `src/pages/HomePage.jsx` handles hotel search, budget filtering, and results.
+- `src/pages/HotelDetailsPage.jsx` fetches current hotel and room availability.
+- `src/pages/BookingLookupPage.jsx` handles finding and cancelling a reservation.
+- `src/components/` contains reusable search, hotel card, budget estimator, header, and booking dialog components.
+- `src/services/bookingApi.js` keeps HTTP requests separate from the page components.
+- `src/utils/` contains date, currency, and hotel-photo helpers.
+- `src/App.jsx` switches between search, hotel detail, and booking lookup routes using the URL hash.
