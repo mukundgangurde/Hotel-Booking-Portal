@@ -104,43 +104,206 @@ default if the file is not present. Open the local address printed by Vite (usua
 
 ## Backend API
 
-All dates use `YYYY-MM-DD`. A stay includes check-in and excludes check-out.
+Start the backend before sending requests. In Postman, create an environment named
+`Hotel Booking Local` and add these variables:
+
+| Variable | Initial value |
+| --- | --- |
+| `baseUrl` | `http://localhost:8080` |
+| `checkIn` | `2027-01-10` |
+| `checkOut` | `2027-01-12` |
+| `guestName` | `Asha Rao` |
+| `guestEmail` | `asha@example.com` |
+| `hotelId` | Leave empty; the search request sets it |
+| `roomTypeId` | Leave empty; the search request sets it |
+| `bookingReference` | Leave empty; the booking request sets it |
+
+Select this environment in Postman. The example dates are in `YYYY-MM-DD` format and must
+be today or later when you run the requests. Update both dates together if they are in the
+past. Check-in is inclusive and check-out is exclusive.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/hotels?location=Mumbai` | Browse hotels and optionally search by location |
-| `GET` | `/api/hotels?location=Mumbai&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD` | Search hotels and include room availability |
-| `GET` | `/api/hotels/{hotelId}?checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD` | View hotel details and room availability |
+| `GET` | `/api/hotels?location=Mumbai&checkIn=2027-01-10&checkOut=2027-01-12` | Search hotels and include room availability |
+| `GET` | `/api/hotels/{hotelId}?checkIn=2027-01-10&checkOut=2027-01-12` | View hotel details and room availability |
 | `POST` | `/api/bookings/quote` | Get a server-calculated price quote and current availability |
 | `POST` | `/api/bookings` | Book one room |
 | `GET` | `/api/bookings/{reference}?email=guest@example.com` | Retrieve a booking using its reference and email |
 | `DELETE` | `/api/bookings/{reference}?email=guest@example.com` | Cancel a booking |
 
-Quote request:
+### Postman test sequence
 
-```json
-{
-  "roomTypeId": 1,
-  "checkIn": "2030-12-10",
-  "checkOut": "2030-12-12"
+Run these requests in order. The first request saves the hotel and room-type IDs; the booking
+request saves its generated reference for lookup and cancellation.
+
+#### 1. Search for a hotel
+
+- Method: `GET`
+- URL: `{{baseUrl}}/api/hotels`
+- In **Params**, add `location` = `Mumbai`, `checkIn` = `{{checkIn}}`, and `checkOut` =
+  `{{checkOut}}`.
+- Expected status: `200 OK`. The result is a JSON array. For the seeded Mumbai hotel, its
+  room type is `Standard Room` at `6500.00` per night, with 8 rooms before any matching
+  bookings. Database IDs and current availability can differ.
+
+In the **Scripts > Post-response** tab, add this script to save the IDs from the response:
+
+```javascript
+const hotels = pm.response.json();
+const hotel = hotels.find(item =>
+  item.location.toLowerCase().includes("mumbai")
+);
+
+pm.test("Mumbai hotel is returned", () => {
+  pm.expect(hotel).to.exist;
+});
+
+if (hotel && hotel.roomTypes.length > 0) {
+  pm.environment.set("hotelId", hotel.id);
+  pm.environment.set("roomTypeId", hotel.roomTypes[0].id);
 }
 ```
 
-Booking request:
+#### 2. View hotel details and date-specific availability
+
+- Method: `GET`
+- URL: `{{baseUrl}}/api/hotels/{{hotelId}}?checkIn={{checkIn}}&checkOut={{checkOut}}`
+- Expected status: `200 OK`.
+- Check `roomTypes[0].availableRooms`. This is the live availability for the selected dates;
+  without dates the field is `null`.
+
+#### 3. Get a price quote
+
+- Method: `POST`
+- URL: `{{baseUrl}}/api/bookings/quote`
+- In **Headers**, set `Content-Type` = `application/json`.
+- In **Body > raw > JSON**, enter:
 
 ```json
 {
+  "roomTypeId": {{roomTypeId}},
+  "checkIn": "{{checkIn}}",
+  "checkOut": "{{checkOut}}"
+}
+```
+
+Expected status: `200 OK`. On a fresh database with no overlapping bookings, the seeded
+Mumbai room returns a two-night quote of `13000.00` and 8 available rooms. Availability may
+be lower if there are already confirmed bookings.
+
+#### 4. Create a booking
+
+- Method: `POST`
+- URL: `{{baseUrl}}/api/bookings`
+- In **Headers**, set `Content-Type` = `application/json`.
+- In **Body > raw > JSON**, enter:
+
+```json
+{
+  "roomTypeId": {{roomTypeId}},
+  "customerName": "{{guestName}}",
+  "email": "{{guestEmail}}",
+  "checkIn": "{{checkIn}}",
+  "checkOut": "{{checkOut}}"
+}
+```
+
+Expected status: `200 OK`. The response contains a generated `bookingReference`, a
+server-calculated `totalAmount`, and status `CONFIRMED`. For example:
+
+```json
+{
+  "bookingReference": "HB-7F3A9D2C1B4E",
+  "hotelId": 1,
+  "hotelName": "The Harbour House",
   "roomTypeId": 1,
+  "roomName": "Standard Room",
   "customerName": "Asha Rao",
   "email": "asha@example.com",
-  "checkIn": "2030-12-10",
-  "checkOut": "2030-12-12"
+  "checkIn": "2027-01-10",
+  "checkOut": "2027-01-12",
+  "totalAmount": 13000.00,
+  "status": "CONFIRMED",
+  "createdAt": "2026-11-13T12:00:00"
 }
 ```
 
-Use dates that are today or later when trying the API. Booking amounts are calculated by the
-backend from the room price and number of nights. Invalid dates and unavailable inventory
-return an error response with a message.
+The reference and `createdAt` above are examples; the API generates new values. In
+**Scripts > Post-response**, save the actual reference:
+
+```javascript
+const booking = pm.response.json();
+
+pm.test("Booking is confirmed", () => {
+  pm.response.to.have.status(200);
+  pm.expect(booking.status).to.eql("CONFIRMED");
+});
+
+pm.environment.set("bookingReference", booking.bookingReference);
+```
+
+After a successful booking, repeat request 2 with the same dates. The available room count
+should decrease by one.
+
+#### 5. Retrieve the booking
+
+- Method: `GET`
+- URL: `{{baseUrl}}/api/bookings/{{bookingReference}}`
+- In **Params**, add `email` = `{{guestEmail}}`.
+- Expected status: `200 OK`, with the same reference and `CONFIRMED` status.
+
+The email must match the email used to create the booking. An unknown reference or mismatched
+email returns `404 Not Found`.
+
+#### 6. Cancel the booking
+
+- Method: `DELETE`
+- URL: `{{baseUrl}}/api/bookings/{{bookingReference}}`
+- In **Params**, add `email` = `{{guestEmail}}`.
+- Expected status: `200 OK`, with status `CANCELLED`.
+
+Repeat request 2 once more. Availability for the selected dates should return to its
+pre-booking count. Repeating the cancellation is safe; it returns the already-cancelled
+booking.
+
+### Example error checks
+
+To check invalid date handling, send this body to `POST {{baseUrl}}/api/bookings/quote`.
+With the configured two-night date range, both dates are in the future but check-out is
+before check-in:
+
+```json
+{
+  "roomTypeId": {{roomTypeId}},
+  "checkIn": "{{checkOut}}",
+  "checkOut": "{{checkIn}}"
+}
+```
+
+Expected status: `400 Bad Request`, with a response similar to:
+
+```json
+{
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Check-out must be after check-in",
+  "fieldErrors": {}
+}
+```
+
+When all rooms for a date range are reserved, the quote and booking endpoints return
+`409 Conflict` with message `No rooms are available for the selected dates`. The seeded
+Mumbai room type has 8 rooms, so use a test database and cancel any test bookings after
+checking this case. Automated tests cover sold-out and simultaneous-booking behavior:
+
+```bat
+backend\mvnw.cmd -f backend\pom.xml test
+```
+
+Booking amounts are calculated by the backend from the room price and number of nights; do
+not send a price in the booking request. Error responses include `timestamp`, `status`,
+`error`, `message`, and `fieldErrors`.
 
 ## Booking assumptions and surprise feature
 
